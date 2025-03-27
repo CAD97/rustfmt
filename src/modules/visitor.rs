@@ -1,8 +1,9 @@
 use rustc_ast::ast;
 use rustc_ast::visit::Visitor;
-use rustc_span::{Symbol, sym};
+use rustc_span::sym;
 use tracing::debug;
 
+use super::is_macro_name;
 use crate::attr::MetaVisitor;
 use crate::parse::macros::cfg_if::parse_cfg_if;
 use crate::parse::macros::cfg_match::parse_cfg_match;
@@ -42,27 +43,9 @@ impl<'a, 'ast: 'a> Visitor<'ast> for CfgIfVisitor<'a> {
 
 impl<'a, 'ast: 'a> CfgIfVisitor<'a> {
     fn visit_mac_inner(&mut self, mac: &'ast ast::MacCall) -> Result<(), &'static str> {
-        // Support both:
-        // ```
-        // extern crate cfg_if;
-        // cfg_if::cfg_if! {..}
-        // ```
-        // And:
-        // ```
-        // #[macro_use]
-        // extern crate cfg_if;
-        // cfg_if! {..}
-        // ```
-        match mac.path.segments.first() {
-            Some(first_segment) => {
-                if first_segment.ident.name != Symbol::intern("cfg_if") {
-                    return Err("Expected cfg_if");
-                }
-            }
-            None => {
-                return Err("Expected cfg_if");
-            }
-        };
+        if !is_macro_name(mac, "cfg_if") {
+            return Err("Expected cfg_if");
+        }
 
         let items = parse_cfg_if(self.psess, mac)?;
         self.mods
@@ -102,26 +85,9 @@ impl<'a, 'ast: 'a> Visitor<'ast> for CfgMatchVisitor<'a> {
 
 impl<'a, 'ast: 'a> CfgMatchVisitor<'a> {
     fn visit_mac_inner(&mut self, mac: &'ast ast::MacCall) -> Result<(), &'static str> {
-        // Support both:
-        // ```
-        // std::cfg_match! {..}
-        // core::cfg_match! {..}
-        // ```
-        // And:
-        // ```
-        // use std::cfg_match;
-        // cfg_match! {..}
-        // ```
-        match mac.path.segments.last() {
-            Some(last_segment) => {
-                if last_segment.ident.name != Symbol::intern("cfg_match") {
-                    return Err("Expected cfg_match");
-                }
-            }
-            None => {
-                return Err("Expected cfg_match");
-            }
-        };
+        if !is_macro_name(mac, "cfg_match") {
+            return Err("Expected cfg_match");
+        }
 
         let items = parse_cfg_match(self.psess, mac)?;
         self.mods

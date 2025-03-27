@@ -590,30 +590,23 @@ fn find_path_value(attrs: &[ast::Attribute]) -> Option<Symbol> {
     attrs.iter().flat_map(path_value).next()
 }
 
+fn is_macro_name(mac: &ast::MacCall, name: &str) -> bool {
+    mac.path
+        .segments
+        .last()
+        .map_or(false, |segment| segment.ident.name == Symbol::intern(name))
+}
+
 fn is_cfg_if(item: &ast::Item) -> bool {
     match item.kind {
-        ast::ItemKind::MacCall(ref mac) => {
-            if let Some(first_segment) = mac.path.segments.first() {
-                if first_segment.ident.name == Symbol::intern("cfg_if") {
-                    return true;
-                }
-            }
-            false
-        }
+        ast::ItemKind::MacCall(ref mac) => is_macro_name(mac, "cfg_if"),
         _ => false,
     }
 }
 
 fn is_cfg_match(item: &ast::Item) -> bool {
     match item.kind {
-        ast::ItemKind::MacCall(ref mac) => {
-            if let Some(last_segment) = mac.path.segments.last() {
-                if last_segment.ident.name == Symbol::intern("cfg_match") {
-                    return true;
-                }
-            }
-            false
-        }
+        ast::ItemKind::MacCall(ref mac) => is_macro_name(mac, "cfg_match"),
         _ => false,
     }
 }
