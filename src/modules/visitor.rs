@@ -1,9 +1,9 @@
 use rustc_ast::ast;
 use rustc_ast::visit::Visitor;
+use rustc_span::Symbol;
 use rustc_span::sym;
 use tracing::debug;
 
-use super::is_macro_name;
 use crate::attr::MetaVisitor;
 use crate::parse::macros::cfg_if::parse_cfg_if;
 use crate::parse::macros::cfg_match::parse_cfg_match;
@@ -13,15 +13,15 @@ pub(crate) struct ModItem {
     pub(crate) item: ast::Item,
 }
 
-/// Traverse `cfg_if!` macro and fetch modules.
-pub(crate) struct CfgIfVisitor<'a> {
+/// Traverse well-known macro names and fetch modules.
+pub(crate) struct KnownMacroVisitor<'a> {
     psess: &'a ParseSess,
     mods: Vec<ModItem>,
 }
 
-impl<'a> CfgIfVisitor<'a> {
-    pub(crate) fn new(psess: &'a ParseSess) -> CfgIfVisitor<'a> {
-        CfgIfVisitor {
+impl<'a> KnownMacroVisitor<'a> {
+    pub(crate) fn new(psess: &'a ParseSess) -> KnownMacroVisitor<'a> {
+        KnownMacroVisitor {
             mods: vec![],
             psess,
         }
@@ -32,7 +32,7 @@ impl<'a> CfgIfVisitor<'a> {
     }
 }
 
-impl<'a, 'ast: 'a> Visitor<'ast> for CfgIfVisitor<'a> {
+impl<'a, 'ast: 'a> Visitor<'ast> for KnownMacroVisitor<'a> {
     fn visit_mac_call(&mut self, mac: &'ast ast::MacCall) {
         match self.visit_mac_inner(mac) {
             Ok(()) => (),
@@ -41,55 +41,24 @@ impl<'a, 'ast: 'a> Visitor<'ast> for CfgIfVisitor<'a> {
     }
 }
 
-impl<'a, 'ast: 'a> CfgIfVisitor<'a> {
+impl<'a, 'ast: 'a> KnownMacroVisitor<'a> {
     fn visit_mac_inner(&mut self, mac: &'ast ast::MacCall) -> Result<(), &'static str> {
-        if !is_macro_name(mac, "cfg_if") {
-            return Err("Expected cfg_if");
+        fn is_macro_name(mac: &ast::MacCall, name: &str) -> bool {
+            mac.path
+                .segments
+                .last()
+                .map_or(false, |segment| segment.ident.name == Symbol::intern(name))
         }
 
-        let items = parse_cfg_if(self.psess, mac)?;
-        self.mods
-            .append(&mut items.into_iter().map(|item| ModItem { item }).collect());
+        let items = if is_macro_name(mac, "cfg_if") {
+            parse_cfg_if(&self.psess, mac)?
+        } else if is_macro_name(mac, "cfg_match") {
+            parse_cfg_match(&self.psess, mac)?
+        } else {
+            // ignore all other macros
+            vec![]
+        };
 
-        Ok(())
-    }
-}
-
-/// Traverse `cfg_match!` macro and fetch modules.
-pub(crate) struct CfgMatchVisitor<'a> {
-    psess: &'a ParseSess,
-    mods: Vec<ModItem>,
-}
-
-impl<'a> CfgMatchVisitor<'a> {
-    pub(crate) fn new(psess: &'a ParseSess) -> CfgMatchVisitor<'a> {
-        CfgMatchVisitor {
-            mods: vec![],
-            psess,
-        }
-    }
-
-    pub(crate) fn mods(self) -> Vec<ModItem> {
-        self.mods
-    }
-}
-
-impl<'a, 'ast: 'a> Visitor<'ast> for CfgMatchVisitor<'a> {
-    fn visit_mac_call(&mut self, mac: &'ast ast::MacCall) {
-        match self.visit_mac_inner(mac) {
-            Ok(()) => (),
-            Err(e) => debug!("{}", e),
-        }
-    }
-}
-
-impl<'a, 'ast: 'a> CfgMatchVisitor<'a> {
-    fn visit_mac_inner(&mut self, mac: &'ast ast::MacCall) -> Result<(), &'static str> {
-        if !is_macro_name(mac, "cfg_match") {
-            return Err("Expected cfg_match");
-        }
-
-        let items = parse_cfg_match(self.psess, mac)?;
         self.mods
             .append(&mut items.into_iter().map(|item| ModItem { item }).collect());
 

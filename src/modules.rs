@@ -147,29 +147,10 @@ impl<'ast, 'psess, 'c> ModResolver<'ast, 'psess> {
         Ok(self.file_map)
     }
 
-    /// Visit `cfg_if` macro and look for module declarations.
-    fn visit_cfg_if(&mut self, item: Cow<'ast, ast::Item>) -> Result<(), ModuleResolutionError> {
-        let mut visitor = visitor::CfgIfVisitor::new(self.psess);
-        visitor.visit_item(&item);
-        for module_item in visitor.mods() {
-            if let ast::ItemKind::Mod(_, ref sub_mod_kind) = module_item.item.kind {
-                self.visit_sub_mod(
-                    &module_item.item,
-                    Module::new(
-                        module_item.item.span,
-                        Some(Cow::Owned(sub_mod_kind.clone())),
-                        Cow::Owned(ThinVec::new()),
-                        Cow::Owned(ast::AttrVec::new()),
-                    ),
-                )?;
-            }
-        }
-        Ok(())
-    }
-
-    fn visit_cfg_match(&mut self, item: Cow<'ast, ast::Item>) -> Result<(), ModuleResolutionError> {
-        let mut visitor = visitor::CfgMatchVisitor::new(self.psess);
-        visitor.visit_item(&item);
+    /// Visit calls of well known macros and look for module declarations.
+    fn visit_mac_call(&mut self, mac: &ast::MacCall) -> Result<(), ModuleResolutionError> {
+        let mut visitor = visitor::KnownMacroVisitor::new(self.psess);
+        visitor.visit_mac_call(mac);
         for module_item in visitor.mods() {
             if let ast::ItemKind::Mod(_, ref sub_mod_kind) = module_item.item.kind {
                 self.visit_sub_mod(
@@ -192,14 +173,8 @@ impl<'ast, 'psess, 'c> ModResolver<'ast, 'psess> {
         items: ThinVec<rustc_ast::ptr::P<ast::Item>>,
     ) -> Result<(), ModuleResolutionError> {
         for item in items {
-            if is_cfg_if(&item) {
-                self.visit_cfg_if(Cow::Owned(item.into_inner()))?;
-                continue;
-            }
-
-            if is_cfg_match(&item) {
-                self.visit_cfg_match(Cow::Owned(item.into_inner()))?;
-                continue;
+            if let ast::ItemKind::MacCall(ref mac) = item.kind {
+                self.visit_mac_call(mac)?;
             }
 
             if let ast::ItemKind::Mod(_, ref sub_mod_kind) = item.kind {
@@ -224,12 +199,8 @@ impl<'ast, 'psess, 'c> ModResolver<'ast, 'psess> {
         items: &'ast [rustc_ast::ptr::P<ast::Item>],
     ) -> Result<(), ModuleResolutionError> {
         for item in items {
-            if is_cfg_if(item) {
-                self.visit_cfg_if(Cow::Borrowed(item))?;
-            }
-
-            if is_cfg_match(item) {
-                self.visit_cfg_match(Cow::Borrowed(item))?;
+            if let ast::ItemKind::MacCall(ref mac) = item.kind {
+                self.visit_mac_call(mac)?;
             }
 
             if let ast::ItemKind::Mod(_, ref sub_mod_kind) = item.kind {
@@ -588,25 +559,4 @@ fn path_value(attr: &ast::Attribute) -> Option<Symbol> {
 // as unused attributes.
 fn find_path_value(attrs: &[ast::Attribute]) -> Option<Symbol> {
     attrs.iter().flat_map(path_value).next()
-}
-
-fn is_macro_name(mac: &ast::MacCall, name: &str) -> bool {
-    mac.path
-        .segments
-        .last()
-        .map_or(false, |segment| segment.ident.name == Symbol::intern(name))
-}
-
-fn is_cfg_if(item: &ast::Item) -> bool {
-    match item.kind {
-        ast::ItemKind::MacCall(ref mac) => is_macro_name(mac, "cfg_if"),
-        _ => false,
-    }
-}
-
-fn is_cfg_match(item: &ast::Item) -> bool {
-    match item.kind {
-        ast::ItemKind::MacCall(ref mac) => is_macro_name(mac, "cfg_match"),
-        _ => false,
-    }
 }
